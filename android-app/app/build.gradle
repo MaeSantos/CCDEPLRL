@@ -19,3 +19,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+dependencies {
+    implementation "org.tensorflow:tensorflow-lite:2.11.0"
+}
