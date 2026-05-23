@@ -1,0 +1,30 @@
+# IDE/editor metadata
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local app configuration
+local.properties
+**/local.properties
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/build/
+
+# Android/Gradle
+.gradle/
+**/.gradle/
+captures/
+*.apk
+*.aab
+*.ap_
+
+# Local scratch/tooling folders
+.sixth/
