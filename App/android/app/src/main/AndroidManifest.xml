@@ -7,9 +7,9 @@
         android:required="false" />
 
     <application
-        android:label="Dog Emotion"
+        android:label="Dog Scanner"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@drawable/ic_launcher_legacy">
         <activity
             android:name=".MainActivity"
             android:exported="true"

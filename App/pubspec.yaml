@@ -14,6 +14,7 @@ dependencies:
   flutter_tts: ^4.2.0
   image: ^4.5.2
   path_provider: ^2.1.5
+  tflite_flutter: ^0.11.0
 
 dev_dependencies:
   flutter_test:
@@ -22,3 +23,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/logo.png
+    - assets/images/Logo TItle.png
+    - assets/images/Full Logo.png
+    - assets/model.tflite

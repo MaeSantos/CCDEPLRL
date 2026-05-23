@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:file_picker/file_picker.dart';
@@ -85,9 +86,49 @@ class _ScannerPageState extends State<ScannerPage> {
   @override
   void initState() {
     super.initState();
-    _configureTts();
-    _discoverCameras();
-    _addLog('Native Flutter scanner ready.');
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    _addLog('Initializing scanner...');
+    await _configureTts();
+    await _discoverCameras();
+    await _autoLoadModel();
+  }
+
+  Future<void> _autoLoadModel() async {
+    setState(() {
+      _isLoadingModel = true;
+      _status = 'Loading model...';
+    });
+
+    try {
+      _addLog('Auto-loading built-in model...');
+      final nextInterpreter = await Interpreter.fromAsset('assets/model.tflite');
+      final inputShape = nextInterpreter.getInputTensor(0).shape;
+
+      _interpreter?.close();
+      _interpreter = nextInterpreter;
+      _inputHeight = inputShape[1];
+      _inputWidth = inputShape[2];
+
+      setState(() {
+        _modelName = 'Built-in Model';
+        _isLoadingModel = false;
+        _status = 'Model ready';
+      });
+      _addLog('Model loaded successfully.');
+
+      if (_cameras.isNotEmpty) {
+        await _startCamera();
+      }
+    } catch (err) {
+      _addLog('Auto-load failed: $err');
+      setState(() {
+        _isLoadingModel = false;
+        _status = 'Load a TFLite model';
+      });
+    }
   }
 
   Future<void> _configureTts() async {
@@ -99,6 +140,15 @@ class _ScannerPageState extends State<ScannerPage> {
   Future<void> _discoverCameras() async {
     try {
       _cameras = await availableCameras();
+      if (_cameras.isNotEmpty) {
+        // Try to find the back camera by default
+        final backCameraIndex = _cameras.indexWhere(
+          (cam) => cam.lensDirection == CameraLensDirection.back,
+        );
+        if (backCameraIndex != -1) {
+          _cameraIndex = backCameraIndex;
+        }
+      }
       if (mounted) {
         setState(
           () => _status = _cameras.isEmpty ? 'No camera found' : 'Camera ready',
@@ -210,7 +260,7 @@ class _ScannerPageState extends State<ScannerPage> {
       await _camera?.dispose();
       final controller = CameraController(
         _cameras[_cameraIndex],
-        ResolutionPreset.medium,
+        ResolutionPreset.low,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -266,7 +316,7 @@ class _ScannerPageState extends State<ScannerPage> {
 
   Future<void> _onFrame(CameraImage frame) async {
     final now = DateTime.now();
-    if (_isInferencing || now.difference(_lastInference).inMilliseconds < 180) {
+    if (_isInferencing || now.difference(_lastInference).inMilliseconds < 250) {
       return;
     }
     _lastInference = now;
@@ -283,13 +333,22 @@ class _ScannerPageState extends State<ScannerPage> {
         width: _inputWidth,
         height: _inputHeight,
       );
-      final input = _imageToModelInput(resized);
-      final output = List.generate(
-        1,
-        (_) => List<double>.filled(labels.length, 0),
-      );
 
-      interpreter.run(input, output);
+      // Fast conversion to flat Float32List
+      final input = Float32List(_inputWidth * _inputHeight * 3);
+      var bufferIndex = 0;
+      for (var y = 0; y < _inputHeight; y++) {
+        for (var x = 0; x < _inputWidth; x++) {
+          final pixel = resized.getPixel(x, y);
+          input[bufferIndex++] = (pixel.r / 127.5) - 1.0;
+          input[bufferIndex++] = (pixel.g / 127.5) - 1.0;
+          input[bufferIndex++] = (pixel.b / 127.5) - 1.0;
+        }
+      }
+
+      final output = [List<double>.filled(labels.length, 0)];
+      interpreter.run(input.buffer.asFloat32List(), output);
+
       final normalized = _normalizeScores(output.first);
       final bestIndex = _bestIndex(normalized);
       final emotion = labels[bestIndex];
@@ -306,7 +365,7 @@ class _ScannerPageState extends State<ScannerPage> {
       });
       _maybeSpeak(emotion, confidence);
     } catch (err) {
-      _addLog('Inference error: $err');
+      debugPrint('Inference error: $err');
     } finally {
       _isInferencing = false;
     }
@@ -422,7 +481,8 @@ class _ScannerPageState extends State<ScannerPage> {
   void _addLog(String message) {
     if (!mounted) return;
     setState(() {
-      final time = TimeOfDay.now().format(context);
+      final now = DateTime.now();
+      final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       _log.insert(0, '[$time] $message');
       if (_log.length > 5) {
         _log.removeLast();
@@ -513,8 +573,8 @@ class _Header extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 54,
+            height: 54,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
@@ -527,27 +587,32 @@ class _Header extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Center(
-              child: Text('🐶', style: TextStyle(fontSize: 24)),
+            clipBehavior: Clip.antiAlias,
+            child: const Padding(
+              padding: EdgeInsets.all(5),
+              child: Image(
+                image: AssetImage('assets/images/logo.png'),
+                fit: BoxFit.contain,
+              ),
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Dog Emotion',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                ),
-                Text(
-                  'Native scanner',
-                  style: TextStyle(
-                    color: Color(0xff64756d),
-                    fontWeight: FontWeight.w600,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 210),
+                child: Image.asset(
+                  'assets/images/Logo TItle.png',
+                  height: 48,
+                  fit: BoxFit.contain,
+                  alignment: Alignment.centerLeft,
+                  errorBuilder: (context, error, stackTrace) => const Text(
+                    'Dog Emotion',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           Chip(
